@@ -1,5 +1,3 @@
-"""Détection d'ARP spoofing."""
-
 import logging
 from collections import Counter, defaultdict
 
@@ -11,10 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class ArpSpoofDetector(Detector):
-    """Repère les MAC qui usurpent l'IP d'une autre machine."""
-
     def detect(self, packets: PacketList) -> list[Attack]:
-        """Retourne les MAC des attaquants ARP."""
         ip_to_macs: dict[str, set[str]] = defaultdict(set)
         mac_to_ips: dict[str, set[str]] = defaultdict(set)
         unsolicited: Counter[str] = Counter()

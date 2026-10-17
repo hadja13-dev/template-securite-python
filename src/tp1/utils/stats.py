@@ -1,5 +1,3 @@
-"""Comptage des paquets par protocole."""
-
 import logging
 from collections import Counter
 from typing import ClassVar
@@ -11,8 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class ProtocolStats:
-    """Compte les protocoles présents dans une capture."""
-
     LAYERS: ClassVar[dict[str, type]] = {
         "Ethernet": Ether,
         "ARP": ARP,

@@ -15,7 +15,6 @@ logger = logging.getLogger("tp1")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Analyse les arguments --pcap, --iface, --out et --count."""
     parser = argparse.ArgumentParser(description="TP1 - Analyse de capture reseau")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--pcap", type=Path, help="Fichier PCAP a analyser")
@@ -26,7 +25,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Orchestre capture, stats, détection, flag et rapports."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv)
 

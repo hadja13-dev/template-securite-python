@@ -1,5 +1,3 @@
-"""Recherche du flag dans la capture."""
-
 import logging
 import re
 from urllib.parse import unquote_plus
@@ -12,14 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class FlagFinder:
-    """Extrait le flag ESGI{...} des payloads."""
-
     def __init__(self) -> None:
-        """Compile le motif du flag."""
         self.pattern = re.compile(FLAG_PATTERN)
 
     def find(self, packets: PacketList, attackers: set[str] | None = None) -> str | None:
-        """Retourne le flag, en priorité celui envoyé par un attaquant."""
         attackers = attackers or set()
         fallback: str | None = None
         for pkt in packets:

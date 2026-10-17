@@ -1,5 +1,3 @@
-"""Lecture des paquets depuis un fichier PCAP ou une interface réseau."""
-
 import logging
 from pathlib import Path
 
@@ -9,10 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class PacketCapture:
-    """Charge des paquets réseau depuis un PCAP ou une interface."""
-
     def __init__(self, pcap: Path | None = None, iface: str | None = None) -> None:
-        """Enregistre la source ; il en faut au moins une."""
         if pcap is None and iface is None:
             raise ValueError("Il faut un fichier PCAP ou une interface")
         self.pcap = Path(pcap) if pcap is not None else None
@@ -31,5 +26,4 @@ class PacketCapture:
 
 
 def list_interfaces() -> list[str]:
-    """Liste les interfaces réseau disponibles."""
     return get_if_list()

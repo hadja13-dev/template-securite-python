@@ -13,14 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class PortScanDetector(Detector):
-    """Repère une source qui envoie des SYN vers de nombreux ports."""
-
     def __init__(self, threshold: int = PORT_SCAN_THRESHOLD) -> None:
-        """Fixe le nombre de ports distincts avant alerte."""
         self.threshold = threshold
 
     def detect(self, packets: PacketList) -> list[Attack]:
-        """Retourne les IP sources qui scannent."""
         ports: dict[str, set[int]] = defaultdict(set)
 
         for pkt in packets:

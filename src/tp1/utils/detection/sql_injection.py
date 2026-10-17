@@ -1,5 +1,3 @@
-"""Détection d'injection SQL dans HTTP."""
-
 import logging
 import re
 from urllib.parse import unquote_plus
@@ -16,19 +14,14 @@ HTTP_METHODS: tuple[bytes, ...] = (b"GET ", b"POST ", b"PUT ", b"DELETE ", b"PAT
 
 
 class SqlInjectionDetector(Detector):
-    """Cherche des motifs SQLi dans les requêtes HTTP."""
-
     def __init__(self) -> None:
-        """Compile les motifs SQLi une seule fois."""
         self.patterns = [re.compile(p, re.IGNORECASE) for p in SQLI_PATTERNS]
 
     def is_malicious(self, payload: str) -> bool:
-        """Vrai si le payload décodé contient un motif SQLi."""
         decoded = unquote_plus(payload)
         return any(p.search(decoded) for p in self.patterns)
 
     def detect(self, packets: PacketList) -> list[Attack]:
-        """Retourne les IP sources des requêtes malveillantes."""
         attackers: set[str] = set()
 
         for pkt in packets:

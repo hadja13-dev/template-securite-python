@@ -1,5 +1,3 @@
-"""Point d'entrée des détecteurs."""
-
 from scapy.all import PacketList
 
 from .arp_spoof import ArpSpoofDetector
@@ -18,7 +16,6 @@ __all__ = [
 
 
 def run_all_detectors(packets: PacketList) -> list[Attack]:
-    """Exécute tous les détecteurs et fusionne les résultats sans doublon."""
     detectors: list[Detector] = [
         ArpSpoofDetector(),
         PortScanDetector(),

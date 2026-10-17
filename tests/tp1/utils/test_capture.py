@@ -1,5 +1,3 @@
-"""Tests de la classe PacketCapture."""
-
 from pathlib import Path
 
 import pytest

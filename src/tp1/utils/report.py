@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 class JsonReport:
-    """Écrit report.json au format attendu."""
-
     def write(
         self,
         path: Path,
@@ -39,10 +37,7 @@ class JsonReport:
 
 
 class PdfReport:
-    """Écrit un PDF avec graphique et tableau."""
-
     def build_chart(self, protocols: dict[str, int], out: Path) -> Path:
-        """Crée un diagramme en barres PNG et retourne son chemin."""
         out = Path(out)
         out.parent.mkdir(parents=True, exist_ok=True)
 
