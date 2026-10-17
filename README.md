@@ -1,29 +1,33 @@
-# Template code Sécurité Python
 
-## Description
-
-Projet contenant les modèles de TP pour le cours de sécurité Python de 4e année de l'ESGI.
 
 ## Installation
 
-Faire un fork puis un clone du projet :
-
-```bash
-git clone git@github.com:<VotreNom>/template-securite-python.git
-```
-
-Installer les dépendances :
-
-```bash
-cd template-securite-python
-poetry lock
-poetry install
-```
+    poetry install
 
 ## Utilisation
 
-Lancer le projet :
+    poetry run tp1 --pcap capture.pcap --out report.json
 
-```bash
-poetry run tp1
-```
+Pour le développement, une capture live est possible :
+
+    poetry run tp1 --iface eth0 --count 100 --out report.json
+
+L'outil écrit `report.json` (protocoles, attaques, flag) et `report.pdf`
+(graphique, tableau des protocoles, attaques et règles de blocage).
+
+## Détections
+
+- **ARP spoofing** : [comment tu repères l'attaquant : MAC qui revendique plusieurs IP…]
+- **Scan de ports** : [SYN seuls, seuil de 15 ports distincts par IP source…]
+- **Injection SQL** : [motifs cherchés, uniquement dans les requêtes HTTP…]
+- **Flag** : [où et comment tu le cherches, gestion des leurres…]
+
+## Organisation du code
+
+[Une ligne par module : capture, stats, detection/, flag, blocking, report, main.]
+
+## Tests et qualité
+
+    poetry run pytest
+    poetry run ruff check .
+    poetry run pre-commit run --all-files
