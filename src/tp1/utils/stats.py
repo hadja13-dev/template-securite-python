@@ -1,7 +1,9 @@
 """Comptage des paquets par protocole."""
+
 import logging
 from collections import Counter
 from typing import ClassVar
+
 from scapy.all import ARP, DNS, ICMP, IP, TCP, UDP, Ether, PacketList, Raw
 from scapy.packet import Packet
 
@@ -32,11 +34,8 @@ class ProtocolStats:
             if self._is_http(pkt):
                 counts["HTTP"] += 1
 
-        logger.info(
-            "%d paquets analysés, %d protocoles distincts", len(packets), len(counts)
-        )
+        logger.info("%d paquets analysés, %d protocoles distincts", len(packets), len(counts))
         return dict(counts)
-
 
     @staticmethod
     def _is_http(pkt: Packet) -> bool:
@@ -45,6 +44,14 @@ class ProtocolStats:
 
         payload = bytes(pkt[Raw].load)
         return payload.startswith(
-            (b"GET ", b"POST ", b"PUT ", b"DELETE ", b"HEAD ",
-             b"OPTIONS ", b"PATCH ", b"HTTP/")
+            (
+                b"GET ",
+                b"POST ",
+                b"PUT ",
+                b"DELETE ",
+                b"HEAD ",
+                b"OPTIONS ",
+                b"PATCH ",
+                b"HTTP/",
+            )
         )

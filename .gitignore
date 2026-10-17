@@ -9,3 +9,10 @@ __pycache__/
 report.pdf
 app.log
 .env
+
+.pytest_cache/
+.ruff_cache/
+*.pcap
+*.pdf
+*.png
+report.json

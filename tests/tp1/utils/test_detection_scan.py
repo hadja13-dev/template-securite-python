@@ -8,7 +8,6 @@ from tp1.utils.detection.port_scan import PortScanDetector
 
 
 class TestPortScanDetector:
-
     def setup_method(self) -> None:
         self.detector = PortScanDetector(threshold=5)
 
@@ -29,17 +28,11 @@ class TestPortScanDetector:
         assert self.detector.detect(pkts) == []
 
     def test_detect_scan(self) -> None:
-        pkts = PacketList(
-            [Ether() / IP(src="10.0.0.99") / TCP(dport=p, flags="S") for p in range(20, 30)]
-        )
-        assert self.detector.detect(pkts) == [
-            Attack(type="port_scan", attacker="10.0.0.99")
-        ]
+        pkts = PacketList([Ether() / IP(src="10.0.0.99") / TCP(dport=p, flags="S") for p in range(20, 30)])
+        assert self.detector.detect(pkts) == [Attack(type="port_scan", attacker="10.0.0.99")]
 
     def test_detect_ignores_synack(self) -> None:
-        pkts = PacketList(
-            [Ether() / IP(src="10.0.0.1") / TCP(dport=p, flags="SA") for p in range(1, 20)]
-        )
+        pkts = PacketList([Ether() / IP(src="10.0.0.1") / TCP(dport=p, flags="SA") for p in range(1, 20)])
         assert self.detector.detect(pkts) == []
 
     def test_detect_multiple_sources(self) -> None:
@@ -47,9 +40,7 @@ class TestPortScanDetector:
             [Ether() / IP(src="10.0.0.1") / TCP(dport=p, flags="S") for p in range(10)]
             + [Ether() / IP(src="10.0.0.2") / TCP(dport=80, flags="S")]
         )
-        assert self.detector.detect(pkts) == [
-            Attack(type="port_scan", attacker="10.0.0.1")
-        ]
+        assert self.detector.detect(pkts) == [Attack(type="port_scan", attacker="10.0.0.1")]
 
     def test_detect_threshold_limit(self) -> None:
         src = "10.0.0.77"

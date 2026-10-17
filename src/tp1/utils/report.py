@@ -1,46 +1,120 @@
-from tp1.utils.capture import Capture
+"""Génération des rapports JSON et PDF."""
+
+import contextlib
+import json
+import logging
+from dataclasses import asdict
+from pathlib import Path
+
+from fpdf import FPDF
+from matplotlib.figure import Figure
+
+from .blocking import blocking_rule
+from .detection.base import Attack
+
+logger = logging.getLogger(__name__)
 
 
-class Report:
-    def __init__(self, capture: Capture, filename: str, summary: str):
-        self.capture = capture
-        self.filename = filename
-        self.title = "TITRE DU RAPPORT"
-        self.summary = summary
-        self.array = ""
-        self.graph = ""
+class JsonReport:
+    """Écrit report.json au format attendu."""
 
-    def concat_report(self) -> str:
-        """
-        Concat all data in report
-        """
-        content = ""
-        content += self.title
-        content += self.summary
-        content += self.array
-        content += self.graph
+    def write(
+        self,
+        path: Path,
+        protocols: dict[str, int],
+        attacks: list[Attack],
+        flag: str | None,
+    ) -> None:
+        """Sérialise le rapport."""
+        data = {
+            "protocols": protocols,
+            "attacks": [asdict(a) for a in attacks],
+            "flag": flag,
+        }
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info("Rapport JSON écrit : %s", path)
 
-        return content
 
-    def save(self, filename: str) -> None:
-        """
-        Save report in a file
-        :param filename:
-        :return:
-        """
-        final_content = self.concat_report()
-        with open(self.filename, "w") as report:
-            report.write(final_content)
+class PdfReport:
+    """Écrit un PDF avec graphique et tableau."""
 
-    def generate(self, param: str) -> None:
-        """
-        Generate graph and array
-        """
-        if param == "graph":
-            # TODO: generate graph
-            graph = ""
-            self.graph = graph
-        elif param == "array":
-            # TODO: generate array
-            array = ""
-            self.array = array
+    def build_chart(self, protocols: dict[str, int], out: Path) -> Path:
+        """Crée un diagramme en barres PNG et retourne son chemin."""
+        out = Path(out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+        fig = Figure(figsize=(8, 4))
+        ax = fig.subplots()
+        ax.bar(list(protocols.keys()), list(protocols.values()), color="steelblue")
+        ax.set_xlabel("Protocole")
+        ax.set_ylabel("Nombre de paquets")
+        ax.set_title("Répartition des protocoles")
+        ax.tick_params(axis="x", labelrotation=45)
+        fig.tight_layout()
+        fig.savefig(out, dpi=120)
+        logger.info("Graphique enregistré : %s", out)
+        return out
+
+    def write(self, path: Path, protocols: dict[str, int], attacks: list[Attack]) -> None:
+        """Assemble le PDF : titre, graphique, protocoles, attaques."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        chart_path = path.with_suffix(".png")
+        self.build_chart(protocols, chart_path)
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+
+        # Titre
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 10, "Rapport d'analyse reseau", align="C")
+        pdf.ln(12)
+
+        # Graphique
+        pdf.image(str(chart_path), x=10, w=190)
+        pdf.ln(5)
+
+        # Tableau des protocoles
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Protocoles")
+        pdf.ln(8)
+        pdf.set_font("Helvetica", size=10)
+        pdf.cell(80, 7, "Protocole", border=1)
+        pdf.cell(40, 7, "Nombre", border=1)
+        pdf.ln(7)
+        for name, count in sorted(protocols.items()):
+            pdf.cell(80, 7, str(name), border=1)
+            pdf.cell(40, 7, str(count), border=1)
+            pdf.ln(7)
+        pdf.ln(8)
+
+        # Attaques et règles de blocage
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Attaques detectees")
+        pdf.ln(8)
+        pdf.set_font("Helvetica", size=9)
+        if not attacks:
+            pdf.cell(0, 7, "Aucune attaque detectee.")
+            pdf.ln(7)
+        else:
+            pdf.cell(35, 7, "Type", border=1)
+            pdf.cell(40, 7, "Attaquant", border=1)
+            pdf.cell(115, 7, "Regle de blocage proposee", border=1)
+            pdf.ln(7)
+            for a in attacks:
+                pdf.cell(35, 7, a.type, border=1)
+                pdf.cell(40, 7, a.attacker, border=1)
+                pdf.cell(115, 7, blocking_rule(a), border=1)
+                pdf.ln(7)
+
+        pdf.output(str(path))
+        logger.info("Rapport PDF écrit : %s", path)
+
+        # Nettoyage du PNG temporaire
+        with contextlib.suppress(OSError):
+            chart_path.unlink(missing_ok=True)

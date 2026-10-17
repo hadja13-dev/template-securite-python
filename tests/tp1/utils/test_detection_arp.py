@@ -39,9 +39,7 @@ class TestArpSpoofDetector:
 
     def test_detect_unsolicited_without_conflict(self) -> None:
         """Un ARP gratuit isolé n'est pas une attaque."""
-        pkts = PacketList(
-            [Ether() / ARP(op=2, psrc="192.168.1.1", hwsrc="11:22:33:44:55:66")]
-        )
+        pkts = PacketList([Ether() / ARP(op=2, psrc="192.168.1.1", hwsrc="11:22:33:44:55:66")])
         assert self.detector.detect(pkts) == []
 
     def test_detect_conflict_spares_legit_mac(self) -> None:
@@ -53,9 +51,7 @@ class TestArpSpoofDetector:
                 Ether() / ARP(op=2, psrc="192.168.1.1", hwsrc="11:22:33:44:55:66"),
             ]
         )
-        assert self.detector.detect(pkts) == [
-            Attack(type="arp_spoofing", attacker="11:22:33:44:55:66")
-        ]
+        assert self.detector.detect(pkts) == [Attack(type="arp_spoofing", attacker="11:22:33:44:55:66")]
 
     def test_detect_mitm(self) -> None:
         """La MAC qui revendique plusieurs IP est l'attaquant."""
@@ -67,6 +63,4 @@ class TestArpSpoofDetector:
                 Ether() / ARP(op=2, psrc="10.0.0.2", hwsrc="bb:bb:bb:bb:bb:bb"),
             ]
         )
-        assert self.detector.detect(pkts) == [
-            Attack(type="arp_spoofing", attacker="bb:bb:bb:bb:bb:bb")
-        ]
+        assert self.detector.detect(pkts) == [Attack(type="arp_spoofing", attacker="bb:bb:bb:bb:bb:bb")]

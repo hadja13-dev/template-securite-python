@@ -1,11 +1,12 @@
-import logging
+PORT_SCAN_THRESHOLD: int = 15
 
-from dotenv import load_dotenv
+SQLI_PATTERNS: list[str] = [
+    r"'\s*or\s+'?\d+'?\s*=\s*'?\d+",  # ' OR 1=1 / ' or '1'='1
+    r"union\s+(all\s+)?select",
+    r"'\s*;\s*drop\s+table",
+    r"sleep\s*\(\s*\d+\s*\)",
+    r"'\s*--",
+]
 
-load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("app.log", mode="a"), logging.StreamHandler()],
-)
+FLAG_PATTERN: str = r"ESGI\{[^}]+\}"
+HTTP_PORTS: set[int] = {80, 8080}

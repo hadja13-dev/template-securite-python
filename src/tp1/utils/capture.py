@@ -1,82 +1,35 @@
-from scapy.all import (
-    ARP,
-    DNS,
-    ICMP,
-    IP,
-    TCP,
-    UDP,
-    Ether,
-    Raw,
-    Scapy_Exception,
-    rdpcap,
-    sniff,
-)
+"""Lecture des paquets depuis un fichier PCAP ou une interface réseau."""
 
-from tp1.utils.config import logger
+import logging
+from pathlib import Path
 
-HTTP_START = (b"GET ", b"POST ", b"PUT ", b"HEAD ", b"DELETE ", b"HTTP/")
+from scapy.all import PacketList, get_if_list, rdpcap, sniff
+
+logger = logging.getLogger(__name__)
 
 
-class Capture:
-    def __init__(self, pcap: str | None = None, interface: str | None = None) -> None:
-        self.pcap = pcap
-        self.interface = interface
-        self.packets = []
-        self.summary = ""
+class PacketCapture:
+    """Charge des paquets réseau depuis un PCAP ou une interface."""
 
-    def capture_traffic(self) -> None:
-        """
-        Capture network traffic from a pcap file or from an interface
-        """
-        try:
-            if self.pcap:
-                logger.info(f"Read packets from file {self.pcap}")
-                self.packets = rdpcap(self.pcap)
-            elif self.interface:
-                logger.info(f"Capture traffic from interface {self.interface}")
-                self.packets = sniff(iface=self.interface, timeout=10)
-            else:
-                logger.error("No pcap file or interface given")
-        except (OSError, Scapy_Exception) as error:
-            logger.error(f"Unable to read traffic: {error}")
-            self.packets = []
-        logger.info(f"{len(self.packets)} packets captured")
+    def __init__(self, pcap: Path | None = None, iface: str | None = None) -> None:
+        """Enregistre la source ; il en faut au moins une."""
+        if pcap is None and iface is None:
+            raise ValueError("Il faut un fichier PCAP ou une interface")
+        self.pcap = Path(pcap) if pcap is not None else None
+        self.iface = iface
 
-    def get_protocol(self, packet) -> list[str]:
-        """
-        Return the list of protocols found in one packet
-        """
-        protocols = []
-        for name, layer in [
-            ("Ethernet", Ether),
-            ("ARP", ARP),
-            ("IP", IP),
-            ("TCP", TCP),
-            ("UDP", UDP),
-            ("ICMP", ICMP),
-            ("DNS", DNS),
-        ]:
-            if packet.haslayer(layer):
-                protocols.append(name)
-        if packet.haslayer(TCP) and packet.haslayer(Raw):
-            payload = bytes(packet[Raw].load)
-            if payload.startswith(HTTP_START):
-                protocols.append("HTTP")
-        return protocols
+    def load(self, count: int = 0, timeout: int = 30) -> PacketList:
+        """Retourne les paquets lus depuis le fichier ou l'interface."""
+        if self.pcap is not None:
+            if not self.pcap.is_file():
+                raise FileNotFoundError(self.pcap)
+            packets = rdpcap(str(self.pcap))
+            logger.info("%d paquets lus depuis %s", len(packets), self.pcap)
+            return packets
+        logger.info("Capture sur %s (timeout %ds)", self.iface, timeout)
+        return sniff(iface=self.iface, count=count, timeout=timeout)
 
-    def get_all_protocols(self) -> dict[str, int]:
-        """
-        Return all protocols captured with total packets number
-        """
-        counts = {}
-        for packet in self.packets:
-            for protocol in self.get_protocol(packet):
-                counts[protocol] = counts.get(protocol, 0) + 1
-        return counts
 
-    def sort_network_protocols(self) -> dict[str, int]:
-        """
-        Sort protocols from the most to the least frequent
-        """
-        counts = self.get_all_protocols()
-        return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+def list_interfaces() -> list[str]:
+    """Liste les interfaces réseau disponibles."""
+    return get_if_list()
