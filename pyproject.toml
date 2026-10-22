@@ -23,6 +23,8 @@ matplotlib = "^3.11.2"
 python-magic = { version = "^0.4.27", markers = "sys_platform != 'win32'" }
 python-magic-bin = { version = "^0.4.14", markers = "sys_platform == 'win32'" }
 lief = "^1.0.0"
+yara-python = "^4.5.4"
+pydantic = "^2.14.1"
 
 [build-system]
 requires = ["poetry-core"]
