@@ -22,7 +22,7 @@ def shannon_entropy(data: bytes) -> float:
 def detect_file_type(data: bytes) -> str:
     try:
         return magic.from_buffer(data)
-    except Exception as exc:  # libmagic absente ou contenu illisible
+    except (magic.MagicException, OSError, ValueError) as exc:
         logger.warning("Détection du type impossible : %s", exc)
         return "unknown"
 

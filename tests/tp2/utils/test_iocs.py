@@ -1,6 +1,7 @@
 import re
-from tp2.utils.iocs import extract_flag
+
 from tp2.utils.iocs import (
+    extract_flag,
     extract_iocs,
     extract_strings,
     find_all,
