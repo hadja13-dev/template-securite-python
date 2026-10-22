@@ -16,3 +16,7 @@ app.log
 *.pdf
 *.png
 report.json
+explore.py
+explore.txt
+student/
+out/
