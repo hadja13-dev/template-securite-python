@@ -24,7 +24,7 @@ def run(samples_dir: Path, rules_dir: Path | None, out_dir: Path, client: LLMCli
     analysed = 0
     for path in list_samples(samples_dir):
         try:
-            generate_report(pipeline.analyze(path), out_dir)
+            generate_report(pipeline.analyze(path), out_dir, path)
             analysed += 1
         except Exception:  # noqa: BLE001 - un fichier imprévu ne doit pas bloquer les autres
             logger.exception("Échec de l'analyse de %s", path.name)

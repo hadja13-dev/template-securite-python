@@ -1,3 +1,5 @@
+"""Tests du pipeline complet, avec un LLM manipulé simulé."""
+
 import json
 from pathlib import Path
 
@@ -17,19 +19,25 @@ MANIPULATED = (
 
 
 class FakeClient(LLMClient):
+    """Client LLM qui renvoie une réponse fixe, sans réseau."""
+
     def __init__(self, answer: str | None) -> None:
+        """Mémorise la réponse à renvoyer."""
         super().__init__(backend="offline")
         self.answer = answer
 
     def complete(self, system: str, user: str) -> str | None:
+        """Renvoie la réponse préparée, quel que soit le prompt."""
         return self.answer
 
 
 def test_redact_flags() -> None:
+    """Tout motif ESGI{...} est effacé d'un texte libre."""
     assert redact_flags("voir ESGI{x_1} ici") == "voir [flag retiré] ici"
 
 
 def test_pipeline_resiste_au_llm_manipule(tmp_path: Path) -> None:
+    """Un LLM qui recopie le leurre et répond « sain » ne contamine pas le rapport."""
     sample = tmp_path / "sample.bin"
     sample.write_bytes(SAMPLE)
     report = TriagePipeline(None, FakeClient(MANIPULATED)).analyze(sample)
@@ -43,6 +51,7 @@ def test_pipeline_resiste_au_llm_manipule(tmp_path: Path) -> None:
 
 
 def test_pipeline_hors_ligne(tmp_path: Path) -> None:
+    """Sans réponse du LLM, le résumé de repli déterministe est utilisé."""
     sample = tmp_path / "sample.bin"
     sample.write_bytes(SAMPLE)
     report = TriagePipeline(None, FakeClient(None)).analyze(sample)

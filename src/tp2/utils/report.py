@@ -1,3 +1,5 @@
+"""Génération des rapports : JSON machine-lisible et PDF lisible."""
+
 import json
 import logging
 from pathlib import Path
@@ -20,6 +22,7 @@ def build_report(
     score: int,
     flag: str,
 ) -> dict:
+    """Assemble le rapport au format exact attendu par la correction."""
     return {
         "sha256": meta["sha256"],
         "md5": meta["md5"],
@@ -37,28 +40,35 @@ def build_report(
     }
 
 
-def write_json(report: dict, out_dir: Path) -> Path:
-    path = out_dir / f"{report['sha256']}.json"
-    path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    logger.info("JSON écrit : %s", path)
-    return path
+def output_names(sample: Path, sha256: str) -> list[str]:
+    """Noms des JSON : <nom>.triage.json (correction) et <sha256>.json (énoncé)."""
+    names = {
+        f"{sample.stem}.triage.json",
+        f"{sample.name}.triage.json",
+        f"{sha256}.json",
+    }
+    return sorted(names)
+
+
+def write_json(report: dict, out_dir: Path, sample: Path) -> list[Path]:
+    """Écrit le rapport JSON sous chacun des noms attendus."""
+    content = json.dumps(report, indent=2, ensure_ascii=False)
+    paths = []
+    for name in output_names(sample, report["sha256"]):
+        path = out_dir / name
+        path.write_text(content, encoding="utf-8")
+        paths.append(path)
+    logger.info("JSON écrits : %s", [p.name for p in paths])
+    return paths
 
 
 def to_latin1(text: str) -> str:
+    """Convertit en latin-1, seul jeu géré par les polices standard de fpdf2."""
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
-def write_pdf(report: dict, out_dir: Path) -> Path:
-    pdf_dir = out_dir / "pdf"
-    pdf_dir.mkdir(parents=True, exist_ok=True)
-    path = pdf_dir / f"{report['sha256']}.pdf"
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "Rapport de triage", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", size=10)
-
+def report_lines(report: dict) -> list[tuple[str, str]]:
+    """Prépare les lignes (libellé, valeur) affichées dans le PDF."""
     lines = [
         ("SHA-256", report["sha256"]),
         ("Type", report["file_type"]),
@@ -68,17 +78,33 @@ def write_pdf(report: dict, out_dir: Path) -> Path:
         ("MITRE ATT&CK", ", ".join(report["mitre_attack"]) or "-"),
         ("YARA", ", ".join(report["yara_matches"]) or "-"),
     ]
-    lines += [(f"IOC {k}", ", ".join(v) or "-") for k, v in report["iocs"].items()]
+    for key, values in report["iocs"].items():
+        lines.append((f"IOC {key}", ", ".join(values) or "-"))
     lines.append(("Résumé", report["llm_summary"]))
+    return lines
 
-    for label, value in lines:
-        pdf.multi_cell(0, 6, to_latin1(f"{label} : {value}"), new_x="LMARGIN", new_y="NEXT")
+
+def write_pdf(report: dict, out_dir: Path) -> Path:
+    """Écrit un rapport PDF lisible dans out_dir/pdf/."""
+    pdf_dir = out_dir / "pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    path = pdf_dir / f"{report['sha256']}.pdf"
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "Rapport de triage", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=10)
+    for label, value in report_lines(report):
+        text = to_latin1(f"{label} : {value}")
+        pdf.multi_cell(0, 6, text, new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(str(path))
     logger.info("PDF écrit : %s", path)
     return path
 
 
-def generate_report(report: dict, out_dir: Path) -> list[Path]:
+def generate_report(report: dict, out_dir: Path, sample: Path) -> list[Path]:
+    """Écrit les JSON et le PDF d'un échantillon."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    return [write_json(report, out_dir), write_pdf(report, out_dir)]
+    return [*write_json(report, out_dir, sample), write_pdf(report, out_dir)]
