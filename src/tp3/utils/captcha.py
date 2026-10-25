@@ -4,12 +4,24 @@ captcha.py — image preprocessing + OCR.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 from io import BytesIO
 
+import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-import pytesseract
+# Locate the Tesseract binary when it is not on PATH (portable: on Linux
+# shutil.which finds it, so the Windows fallback is never applied).
+if shutil.which("tesseract") is None:
+    for _candidate in (
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ):
+        if os.path.exists(_candidate):
+            pytesseract.pytesseract.tesseract_cmd = _candidate
+            break
 
 
 def preprocess(image_bytes: bytes) -> Image.Image:

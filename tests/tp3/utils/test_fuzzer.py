@@ -10,7 +10,6 @@ import requests
 
 from tp3.utils.fuzzer import check_path, find_hidden_endpoint, load_wordlist
 
-
 # ---------------------------------------------------------------------------
 # load_wordlist
 # ---------------------------------------------------------------------------

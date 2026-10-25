@@ -2189,6 +2189,7 @@ imanager
 img
 img2
 imgs
+internal-panel
 immagini
 imp
 import

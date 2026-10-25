@@ -7,7 +7,6 @@ used by the network phase.
 from __future__ import annotations
 
 import base64
-from typing import Union
 
 
 def xor(data: bytes, key: bytes) -> bytes:
@@ -32,7 +31,7 @@ def xor(data: bytes, key: bytes) -> bytes:
     return bytes(b ^ key[i % key_len] for i, b in enumerate(data))
 
 
-def b64_decode(token: Union[bytes, str]) -> bytes:
+def b64_decode(token: bytes | str) -> bytes:
     """Typed wrapper around ``base64.b64decode``.
 
     Accepts either a ``str`` or ``bytes`` token.  If a string is given it

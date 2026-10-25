@@ -5,7 +5,6 @@ fuzzer.py — discovery of the hidden web endpoint.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 from urllib.parse import urljoin
 
 import requests
@@ -17,7 +16,7 @@ USER_AGENT = (
 )
 
 
-def load_wordlist(path: Path = DEFAULT_WORDLIST) -> List[str]:
+def load_wordlist(path: Path = DEFAULT_WORDLIST) -> list[str]:
     """Load the embedded wordlist.
 
     Always open relative to the package (``Path(__file__).parent``), never
@@ -31,7 +30,7 @@ def load_wordlist(path: Path = DEFAULT_WORDLIST) -> List[str]:
     """
     if not path.exists():
         raise FileNotFoundError(f"Wordlist not found: {path}")
-    words: List[str] = []
+    words: list[str] = []
     with path.open("r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
             w = line.strip()
@@ -40,7 +39,7 @@ def load_wordlist(path: Path = DEFAULT_WORDLIST) -> List[str]:
     return words
 
 
-def check_path(base_url: str, path: str, session: Optional[requests.Session] = None) -> bool:
+def check_path(base_url: str, path: str, session: requests.Session | None = None) -> bool:
     """Probe a single path and return True if it looks valid.
 
     Considers HTTP 200 and 302 as positive hits; 404 (and connection
@@ -64,7 +63,7 @@ def check_path(base_url: str, path: str, session: Optional[requests.Session] = N
         return False
 
 
-def find_hidden_endpoint(base_url: str, words: List[str]) -> Optional[str]:
+def find_hidden_endpoint(base_url: str, words: list[str]) -> str | None:
     """Walk the wordlist and return the first path that exists.
 
     Args:

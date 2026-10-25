@@ -1,21 +1,19 @@
 """
 netclient.py — TCP phase: connect, timed decode rounds, retrieve final flag.
 
-Protocol hypothesis (to be confirmed against the live target):
-  - server speaks line-oriented messages terminated by ``\\n``
-  - each round consists of one line containing a base64 token
-  - after the last successful answer the server sends a line with the flag
+Protocol (confirmed against server.py):
+  1. One intro line (instructions, contains spaces)
+  2. ROUNDS=3 lines of base64(xor(token, key))
+  3. Final line: OK ESGI{...}
 """
 
 from __future__ import annotations
 
 import re
 import socket
-from typing import Optional
 
 from tp3.utils.codec import decode_token
 
-# Prefer pwntools when available, fall back to stdlib socket
 try:
     from pwn import remote as pwn_remote  # type: ignore
 
@@ -24,30 +22,16 @@ except ImportError:
     _HAS_PWN = False
 
 
-# Generous socket timeout (how long we wait for data).
-# The actual answer must still be sent well under 5 s; decoding is µs.
 SOCKET_TIMEOUT = 8
 
-# Hypothesis: token is base64-looking and reasonably long.
-# Fragile if the prompt itself contains long alphanum strings — refine
-# after observing the real server output.
-TOKEN_RE = re.compile(r"([A-Za-z0-9+/]{16,}={0,2})")
+# Pure base64 line (no spaces / words) — avoids matching the intro sentence
+TOKEN_RE = re.compile(r"^([A-Za-z0-9+/]{16,}={0,2})$")
 FLAG_RE = re.compile(r"(ESGI\{[^}]+\})")
+ERROR_RE = re.compile(r"\b(WRONG|TIMEOUT)\b", re.IGNORECASE)
 
 
 def connect(host: str, port: int):
-    """Open a TCP connection to the challenge service.
-
-    Uses pwntools ``remote`` when available, otherwise a plain
-    ``socket.create_connection``.
-
-    Args:
-        host: Target hostname or IP.
-        port: Target TCP port.
-
-    Returns:
-        A connection object (pwntools tube or stdlib socket).
-    """
+    """Open a TCP connection (pwntools remote or stdlib socket)."""
     if _HAS_PWN:
         return pwn_remote(host, port, timeout=SOCKET_TIMEOUT)
     sock = socket.create_connection((host, port), timeout=SOCKET_TIMEOUT)
@@ -56,17 +40,10 @@ def connect(host: str, port: int):
 
 
 def _recvline(conn) -> bytes:
-    """Read one newline-terminated line.
-
-    This is far more robust than a fixed-size ``recv`` because TCP is a
-    stream: a single ``recv(4096)`` may return a partial token or several
-    messages glued together.  Line-oriented reading matches the most
-    common challenge protocol.
-    """
+    """Read one newline-terminated line."""
     if _HAS_PWN and hasattr(conn, "recvline"):
         return conn.recvline(timeout=SOCKET_TIMEOUT)
 
-    # stdlib socket: accumulate until \\n
     buf = b""
     while True:
         chunk = conn.recv(1)
@@ -75,13 +52,13 @@ def _recvline(conn) -> bytes:
         buf += chunk
         if chunk == b"\n":
             break
-        if len(buf) > 8192:  # safety
+        if len(buf) > 8192:
             break
     return buf
 
 
 def _sendline(conn, data: bytes) -> None:
-    """Send *data* followed by a newline."""
+    """Send data followed by newline."""
     payload = data if data.endswith(b"\n") else data + b"\n"
     if _HAS_PWN and hasattr(conn, "sendline"):
         conn.sendline(data.rstrip(b"\n"))
@@ -96,24 +73,13 @@ def _close(conn) -> None:
         conn.close()
 
 
-def solve_round(conn, key: bytes) -> Optional[str]:
-    """Handle one challenge round (single receive point).
+def solve_round(conn, key: bytes) -> str | None:
+    """One receive → decide: flag / error / token / ignore.
 
-    Protocol per round:
-      1. Receive one line (token or final flag).
-      2. If the line contains the flag → return it.
-      3. Otherwise extract the token, decode, send the answer.
-      4. Return None so the caller loops for the next line.
-
-    Having only **one** receive per call avoids the classic
-    desynchronisation where a second recv consumes the next token.
-
-    Args:
-        conn: Active connection.
-        key:  XOR key from the web phase.
-
-    Returns:
-        The final flag if present on this line, else ``None``.
+    - Flag line   → return the flag
+    - WRONG/TIMEOUT → raise
+    - Pure base64 line → decode + send answer, return None
+    - Anything else (intro, empty…) → ignore, return None
     """
     line = _recvline(conn)
     if not line:
@@ -121,14 +87,19 @@ def solve_round(conn, key: bytes) -> Optional[str]:
 
     text = line.decode("utf-8", errors="replace").strip()
 
-    # Flag may arrive instead of a token
+    # Final flag
     m = FLAG_RE.search(text)
     if m:
         return m.group(1)
 
-    token_match = TOKEN_RE.search(text)
+    # Server error
+    if ERROR_RE.search(text):
+        raise RuntimeError(f"Server rejected round: {text}")
+
+    # Only accept a pure base64 token (no spaces / words)
+    token_match = TOKEN_RE.match(text)
     if not token_match:
-        return None
+        return None  # intro line or garbage → skip
 
     token = token_match.group(1).encode("ascii")
     plaintext = decode_token(token, key)
@@ -137,20 +108,7 @@ def solve_round(conn, key: bytes) -> Optional[str]:
 
 
 def run_rounds(host: str, port: int, key: bytes, max_rounds: int = 30) -> str:
-    """Connect and solve rounds until the final flag is obtained.
-
-    Args:
-        host:       Target host.
-        port:       Target port.
-        key:        XOR key (bytes).
-        max_rounds: Safety limit.
-
-    Returns:
-        The final flag string (``ESGI{...}``).
-
-    Raises:
-        RuntimeError: if the flag is not received within *max_rounds*.
-    """
+    """Connect and solve rounds until the final flag appears."""
     conn = connect(host, port)
     try:
         for _ in range(max_rounds):

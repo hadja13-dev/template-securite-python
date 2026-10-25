@@ -43,13 +43,15 @@ def test_solve_round_sends_decoded_returns_none():
     token = _make_token(plaintext, key)
 
     conn = MagicMock()
-    with patch("tp3.utils.netclient._recvline", return_value=token + b"\n"):
-        with patch("tp3.utils.netclient._sendline") as mock_send:
-            result = solve_round(conn, key)
-            assert result is None
-            mock_send.assert_called_once()
-            sent = mock_send.call_args[0][1]
-            assert plaintext in sent
+    with (
+        patch("tp3.utils.netclient._recvline", return_value=token + b"\n"),
+        patch("tp3.utils.netclient._sendline") as mock_send,
+    ):
+        result = solve_round(conn, key)
+        assert result is None
+        mock_send.assert_called_once()
+        sent = mock_send.call_args[0][1]
+        assert plaintext in sent
 
 
 def test_solve_round_flag_in_line():
