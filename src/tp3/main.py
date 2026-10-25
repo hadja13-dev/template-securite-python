@@ -22,6 +22,7 @@ USER_AGENT = (
 )
 
 TIMEOUT = 8
+MAX_CAPTCHA_ATTEMPTS = 15
 
 logger = logging.getLogger("tp3")
 
@@ -98,119 +99,89 @@ def _solve_web_phase(
     endpoint: str,
     log: logging.Logger,
 ) -> tuple[str, str, int, bytes]:
-    """Retrieve the CAPTCHA page and parse the server's JSON response."""
+    """Retrieve the hidden page, solve the CAPTCHA (with retries), parse JSON."""
 
     with requests.Session() as session:
         session.headers.update({"User-Agent": USER_AGENT})
-
-        page_url = urljoin(
-            base_url.rstrip("/") + "/",
-            endpoint.lstrip("/"),
-        )
-
+        page_url = urljoin(base_url.rstrip("/") + "/", endpoint.lstrip("/"))
         log.info("[*] Fetching hidden page: %s", page_url)
 
-        # Retrieve the page.
-        resp = session.get(page_url, timeout=TIMEOUT)
-        resp.raise_for_status()
-        html = resp.text
+        for attempt in range(1, MAX_CAPTCHA_ATTEMPTS + 1):
+            # --- GET page (régénère un nouveau CAPTCHA à chaque tour) ---
+            resp = session.get(page_url, timeout=TIMEOUT)
+            resp.raise_for_status()
+            html = resp.text
 
-        # Locate the CAPTCHA image.
-        img_m = re.search(
-            r'<img[^>]+src=["\']([^"\']*(?:captcha|challenge|verify)[^"\']*)["\']',
-            html,
-            re.IGNORECASE,
-        )
-
-        if not img_m:
+            # --- Localiser l'image CAPTCHA ---
             img_m = re.search(
-                r'<img[^>]+src=["\']([^"\']+)["\']',
+                r'<img[^>]+src=["\']([^"\']*(?:captcha|challenge|verify)[^"\']*)["\']',
                 html,
                 re.IGNORECASE,
             )
+            if not img_m:
+                img_m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+            if not img_m:
+                raise RuntimeError("CAPTCHA image not found on page")  # structurel → raise
 
-        if not img_m:
-            raise RuntimeError("CAPTCHA image not found on page")
+            img_url = urljoin(page_url, img_m.group(1))
+            img_resp = session.get(img_url, timeout=TIMEOUT)
+            img_resp.raise_for_status()
 
-        img_url = urljoin(page_url, img_m.group(1))
+            # --- OCR + validation longueur ---
+            captcha_text = solve_captcha(img_resp.content).strip().upper()
+            if len(captcha_text) != 5:
+                log.warning("[-] Essai %d: OCR longueur %d ≠ 5, on retente…", attempt, len(captcha_text))
+                continue  # ← mauvais OCR → on repart (nouveau GET)
 
-        img_resp = session.get(img_url, timeout=TIMEOUT)
-        img_resp.raise_for_status()
+            # --- Détecter form action + champ (comme avant) ---
+            form_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\']', html, re.IGNORECASE)
+            action = form_m.group(1) if form_m else page_url
+            action_url = urljoin(page_url, action)
 
-        # Read the CAPTCHA.
-        captcha_text = solve_captcha(img_resp.content)
+            field = "captcha"
+            for name in ("captcha", "code", "answer", "solution", "response", "verify"):
+                if re.search(rf'name=["\']{name}["\']', html, re.IGNORECASE):
+                    field = name
+                    break
 
-        if not isinstance(captcha_text, str) or not captcha_text.strip():
-            raise RuntimeError("CAPTCHA OCR returned an empty result")
+            data = {field: captcha_text}
+            for hidden in re.finditer(
+                r'<input[^>]+type=["\']hidden["\'][^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']',
+                html,
+                re.IGNORECASE,
+            ):
+                data[hidden.group(1)] = hidden.group(2)
 
-        captcha_text = captcha_text.strip().upper()
-        log.info("[*] CAPTCHA OCR completed")
+            # --- POST ---
+            post = session.post(action_url, data=data, timeout=TIMEOUT, allow_redirects=True)
 
-        # Identify the form action.
-        form_m = re.search(
-            r'<form[^>]*action=["\']([^"\']*)["\']',
-            html,
-            re.IGNORECASE,
-        )
+            try:
+                payload = post.json()
+            except requests.exceptions.JSONDecodeError:
+                log.warning("[-] Essai %d: réponse non-JSON, on retente…", attempt)
+                continue
 
-        action = form_m.group(1) if form_m else page_url
-        action_url = urljoin(page_url, action)
+            # --- Échec CAPTCHA → on retente ---
+            if post.status_code == 403 or not isinstance(payload, dict) or "flag1" not in payload:
+                err = (
+                    payload.get("error", "captcha refusé")
+                    if isinstance(payload, dict)
+                    else "réponse inattendue"
+                )
+                log.warning("[-] Essai %d refusé (OCR lu: %s) — %s, on retente…", attempt, captcha_text, err)
+                continue
 
-        # Identify the CAPTCHA field.
-        field = "captcha"
+            # --- Succès ---
+            try:
+                result = parse_server_response(payload)
+            except (ValueError, TypeError) as exc:
+                raise RuntimeError(f"Invalid server response: {exc}") from exc
 
-        for name in (
-            "captcha",
-            "code",
-            "answer",
-            "solution",
-            "response",
-            "verify",
-        ):
-            if re.search(rf'name=["\']{name}["\']', html, re.IGNORECASE):
-                field = name
-                break
+            log.info("[+] CAPTCHA accepté (essai %d)", attempt)
+            return result
 
-        data = {field: captcha_text}
-
-        # Include hidden form inputs.
-        for hidden in re.finditer(
-            r'<input[^>]+type=["\']hidden["\'][^>]*'
-            r'name=["\']([^"\']+)["\'][^>]*'
-            r'value=["\']([^"\']*)["\']',
-            html,
-            re.IGNORECASE,
-        ):
-            data[hidden.group(1)] = hidden.group(2)
-
-        # Submit the form.
-        post = session.post(
-            action_url,
-            data=data,
-            timeout=TIMEOUT,
-            allow_redirects=True,
-        )
-
-        # Parse the JSON response.
-        try:
-            payload = post.json()
-        except requests.exceptions.JSONDecodeError as exc:
-            raise RuntimeError(f"Invalid JSON response (HTTP {post.status_code})") from exc
-
-        if not isinstance(payload, dict):
-            raise TypeError("Unexpected response: JSON object expected")
-
-        if post.status_code == 403:
-            error = payload.get("error", "CAPTCHA invalide")
-            raise RuntimeError(f"CAPTCHA validation failed: {error}")
-
-        try:
-            result = parse_server_response(payload)
-        except ValueError as exc:
-            raise RuntimeError(f"Invalid server response: {exc}") from exc
-
-        log.info("[+] CAPTCHA accepted")
-        return result
+        # --- Toutes les tentatives épuisées ---
+        raise RuntimeError(f"CAPTCHA non résolu après {MAX_CAPTCHA_ATTEMPTS} essais")
 
 
 def main() -> None:
